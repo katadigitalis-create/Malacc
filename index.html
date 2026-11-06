@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Etesd a malacot!</title>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#ffe3ec;--ink:#7a2a4a;--card:#fff7fa;--grass:#bfe8a8;--sky:#d9f1ff;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#3a1f2b;--ink:#ffd6e6;--card:#4b2838;--grass:#4f7a45;--sky:#2b3a5c}}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font-family:"Baloo 2","Trebuchet MS",system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}
+header{width:100%;max-width:480px;display:flex;justify-content:space-between;align-items:center;padding:8px 16px;box-sizing:border-box;font-weight:800;font-size:20px}
+#wrap{position:relative;flex:1;width:100%;max-width:480px;min-height:0}
+canvas{width:100%;height:100%;border-radius:28px;display:block}
+#ov{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;padding:24px;background:color-mix(in srgb,var(--bg) 82%,transparent);border-radius:28px}
+#ov h1{margin:0;font-size:34px;font-weight:800}
+#ov p{margin:0;font-size:18px;line-height:1.3;max-width:320px}
+button{font:inherit;font-weight:800;font-size:22px;border:0;border-radius:999px;padding:10px 34px;background:#ff7eb0;color:#fff;cursor:pointer;box-shadow:0 5px 0 #d9548a}
+button:active{transform:translateY(3px);box-shadow:0 2px 0 #d9548a}
+button:focus-visible{outline:3px solid var(--ink);outline-offset:3px}
+#act{margin:10px 0 14px;width:min(300px,80%);padding:14px 0;font-size:26px;background:#6cc4ff;box-shadow:0 5px 0 #3f9ad6}
+#act.pat{background:#ffb347;box-shadow:0 5px 0 #d98a1c}
+</style>
+</head>
+<body>
+<header><span id="size">Méret: 1</span><span>Cél: 3-as méret</span><span id="best">🍼 0</span></header>
+<div id="wrap"><canvas id="c"></canvas>
+<div id="ov"><h1>Etesd a malacot! 🐷</h1><p id="ovp">Kapd el a 🍼 tápszeres cumit, attól nő! A 🍕 pizza elől ugorj el, mert összemegy tőle. Ha a malac eléri a 3-as méretet, nyertél! 10 cumi után büfiztetni kell! Mozgasd az ujjaddal vagy a nyilakkal, ugrás: gomb vagy szóköz.</p><button id="go">Kezdjük!</button></div></div>
+<button id="act">⬆ Ugrás</button>
+<script>
+const cv=document.getElementById('c'),ctx=cv.getContext('2d'),ov=document.getElementById('ov'),act=document.getElementById('act');
+let W,H,dpr,running=false,last=0,spawn=0,items=[],pops=[],score=0,scale=1,shake=0,sad=0,happy=0,pigX=0,targetX=0,t=0,keys={};
+let lives=3,jumpT=0,jumpY=0,phase='play',bottles=0,pats=0,handT=0,whine=0,burpFlash=0;
+const JD=.7,NEED=4,EVERY=10;
+function resize(){dpr=window.devicePixelRatio||1;const r=cv.getBoundingClientRect();W=r.width;H=r.height;cv.width=W*dpr;cv.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);if(!pigX){pigX=targetX=W/2}}
+addEventListener('resize',()=>{resize();draw()});resize();
+
+let ac;
+function tone(f,d,type='sine',v=.15,when=0,slide=0){if(!ac)return;try{const o=ac.createOscillator(),g=ac.createGain(),s=ac.currentTime+when;o.type=type;o.frequency.setValueAtTime(f,s);if(slide)o.frequency.exponentialRampToValueAtTime(slide,s+d);g.gain.setValueAtTime(v,s);g.gain.exponentialRampToValueAtTime(.001,s+d);o.connect(g).connect(ac.destination);o.start(s);o.stop(s+d)}catch(e){}}
+function goodSound(){tone(523,.12,'triangle',.18);tone(659,.12,'triangle',.18,.09);tone(784,.2,'triangle',.18,.18);tone(300,.18,'square',.06,0,520)}
+function badSound(){tone(150,.35,'sawtooth',.2,0,70);tone(110,.35,'square',.15,.12,60)}
+function whineSound(){tone(640,.3,'sawtooth',.06,0,470);tone(720,.3,'sawtooth',.05,.34,500)}
+function patSound(){tone(190,.12,'sine',.3,0,80);tone(1100,.04,'triangle',.07)}
+function jumpSound(){tone(300,.18,'sine',.12,0,700)}
+function burpSound(){if(!ac)return;try{const s=ac.currentTime,o=ac.createOscillator(),g=ac.createGain(),l=ac.createOscillator(),lg=ac.createGain();o.type='sawtooth';o.frequency.setValueAtTime(170,s);o.frequency.exponentialRampToValueAtTime(55,s+.8);l.frequency.value=32;lg.gain.value=22;l.connect(lg).connect(o.frequency);g.gain.setValueAtTime(.3,s);g.gain.exponentialRampToValueAtTime(.001,s+.85);o.connect(g).connect(ac.destination);o.start(s);l.start(s);o.stop(s+.9);l.stop(s+.9)}catch(e){}tone(90,.7,'square',.12,0,45);tone(500,.1,'triangle',.1,.85,800);tone(700,.12,'triangle',.1,.95,1000)}
+
+function start(){try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();ac.resume()}catch(e){}
+items=[];pops=[];score=0;scale=1;spawn=.5;lives=3;jumpT=0;phase='play';bottles=0;pats=0;sad=happy=shake=0;running=true;ov.style.display='none';upd();last=performance.now();requestAnimationFrame(loop)}
+document.getElementById('go').onclick=start;
+function upd(){document.getElementById('size').textContent='Méret: '+scale.toFixed(1);document.getElementById('best').textContent='🍼 '+score;
+
+act.textContent=phase==='fuss'?'🖐️ Paskold! '+pats+'/'+NEED:'⬆ Ugrás';act.className=phase==='fuss'?'pat':''}
+
+function jump(){if(!running||phase!=='play'||jumpT>0)return;jumpT=.0001;jumpSound()}
+function pat(){if(!running||phase!=='fuss')return;pats++;handT=.25;patSound();
+if(pats>=NEED){phase='play';bottles=0;pats=0;burpSound();burpFlash=1.2;happy=1.2;shake=0;pops.push({x:pigX,y:groundY()-170*scale,t:'BÜFF! 🎉',c:'#e0457f',a:1.6,big:1})}
+upd()}
+act.addEventListener('pointerdown',e=>{e.preventDefault();phase==='fuss'?pat():jump()});
+function move(e){if(phase==='fuss')return;const r=cv.getBoundingClientRect();const p=e.touches?e.touches[0]:e;targetX=p.clientX-r.left}
+cv.addEventListener('pointermove',move);
+cv.addEventListener('pointerdown',e=>{if(phase==='fuss')pat();else move(e)});
+cv.addEventListener('touchmove',e=>{e.preventDefault();move(e)},{passive:false});
+addEventListener('keydown',e=>{keys[e.key]=1;if(e.key===' '||e.key==='ArrowUp'||e.key==='w'){e.preventDefault();phase==='fuss'?(!e.repeat&&pat()):jump()}});
+addEventListener('keyup',e=>keys[e.key]=0);
+
+function pigR(){return 52*scale}
+function groundY(){return H-26}
+function loop(now){if(!running)return;const dt=Math.min(.04,(now-last)/1000);last=now;t+=dt;
+if(phase==='play'){
+if(keys.ArrowLeft||keys.a)targetX-=420*dt;if(keys.ArrowRight||keys.d)targetX+=420*dt;
+targetX=Math.max(0,Math.min(W,targetX));pigX+=(targetX-pigX)*Math.min(1,dt*12);
+spawn-=dt;if(spawn<=0){spawn=Math.max(.5,1-score*.012)+Math.random()*.3;
+items.push({x:30+Math.random()*(W-60),y:-30,v:120+Math.random()*60+score*3,good:Math.random()<.62,rot:Math.random()*6})}}
+else{items=[];whine-=dt;if(whine<=0){whine=1.5;whineSound()}}
+if(jumpT>0){jumpT+=dt;if(jumpT>=JD)jumpT=0}
+jumpY=jumpT>0?Math.sin(Math.PI*jumpT/JD)*(95+25*scale):0;
+const top=groundY()-jumpY-100*scale,bot=groundY()-jumpY;
+for(const it of items){it.y+=it.v*dt;it.rot+=dt*2;
+if(it.done||it.y<top||it.y>bot||Math.abs(it.x-pigX)>pigR()+10)continue;
+if(it.good){it.done=1;score++;bottles++;scale+=.07;happy=.7;goodSound();pops.push({x:pigX,y:top-10,t:'Nyam! +1',c:'#e0457f',a:1});
+upd();if(scale>=2.995){scale=3;upd();gameOver(true);return}if(bottles>=EVERY){phase='fuss';pats=0;whine=.4;happy=0}}
+else if(jumpY>14){if(!it.dodge){it.dodge=1;pops.push({x:it.x,y:top-10,t:'Hopp! 🦘',c:'#2e8f5a',a:1})}}
+else{it.done=1;sad=.9;shake=.5;scale=Math.max(1,scale-.07);badSound();pops.push({x:pigX,y:top-10,t:'Fúj! −1 🍕',c:'#b0402a',a:1});upd();
+}}
+items=items.filter(i=>!i.done&&i.y<H+40);
+for(const p of pops){p.y-=40*dt;p.a-=dt*1.1}pops=pops.filter(p=>p.a>0);
+happy=Math.max(0,happy-dt);sad=Math.max(0,sad-dt);shake=Math.max(0,shake-dt);handT=Math.max(0,handT-dt);burpFlash=Math.max(0,burpFlash-dt);
+draw();requestAnimationFrame(loop)}
+
+function gameOver(w){running=false;draw();goodSound();document.querySelector('#ov h1').textContent='Nyertél! 🎉';
+document.getElementById('ovp').textContent='A malac elérte a 3-as méretet! Megevett cumik: '+score+'.';
+document.getElementById('go').textContent='Újra!';ov.style.display='flex'}
+
+function draw(){
+const st=getComputedStyle(document.documentElement);
+const sky=ctx.createLinearGradient(0,0,0,H);sky.addColorStop(0,st.getPropertyValue('--sky').trim());sky.addColorStop(1,st.getPropertyValue('--card').trim());
+ctx.fillStyle=sky;ctx.fillRect(0,0,W,H);
+ctx.fillStyle=st.getPropertyValue('--grass').trim();ctx.fillRect(0,groundY()+8,W,H);
+ctx.textAlign='center';ctx.textBaseline='middle';ctx.font='42px sans-serif';
+for(const it of items){ctx.save();ctx.translate(it.x,it.y);ctx.rotate(Math.sin(it.rot)*.3);ctx.globalAlpha=it.dodge?.5:1;ctx.fillText(it.good?'🍼':'🍕',0,0);ctx.restore()}
+pig();
+ctx.textAlign='center';ctx.fillStyle=st.getPropertyValue('--ink').trim();
+if(phase==='fuss'){ctx.font='800 22px "Baloo 2",sans-serif';ctx.fillText('Nyűgös a malac! Büfiztesd meg!',W/2,34);ctx.fillText('Paskolás: '+pats+' / '+NEED,W/2,62)}
+for(const p of pops){ctx.globalAlpha=Math.max(0,Math.min(1,p.a));ctx.fillStyle=p.c;ctx.font=(p.big?'800 40px':'800 22px')+' "Baloo 2",sans-serif';ctx.fillText(p.t,p.x,p.y)}ctx.globalAlpha=1}
+
+function pig(){
+const s=scale,gy=groundY(),fuss=phase==='fuss',sx=shake?Math.sin(t*60)*5:fuss?Math.sin(t*18)*3:0;
+const hop=happy?Math.abs(Math.sin(t*12))*(14+10*s):0;
+ctx.fillStyle='rgba(0,0,0,.12)';const k=1-(jumpY+hop)/260;ctx.beginPath();ctx.ellipse(pigX,gy+6,56*s*Math.max(.5,k),9*s*Math.max(.5,k),0,0,7);ctx.fill();
+ctx.save();ctx.translate(pigX+sx,gy-jumpY-hop);ctx.scale(s,s);if(fuss)ctx.rotate(Math.sin(t*9)*.05);
+const pink=sad?'#ff9aa8':fuss?'#ffa6c4':'#ffb3cf',dark='#f48bb2';
+ctx.fillStyle=dark;for(const x of[-30,30]){ctx.beginPath();ctx.ellipse(x,-4,14,10,0,0,7);ctx.fill()}
+for(const d of[-1,1]){ctx.beginPath();ctx.moveTo(d*26,-86);ctx.lineTo(d*52,-112);ctx.lineTo(d*54,-72);ctx.closePath();ctx.fill()}
+ctx.fillStyle=pink;ctx.beginPath();ctx.ellipse(0,-48,56,50,0,0,7);ctx.fill();
+ctx.fillStyle=fuss||sad?'rgba(255,50,80,.7)':'rgba(255,110,160,.45)';for(const d of[-1,1]){ctx.beginPath();ctx.ellipse(d*38,-40,9,6,0,0,7);ctx.fill()}
+ctx.fillStyle='#3b1b2b';ctx.strokeStyle='#3b1b2b';ctx.lineWidth=3;ctx.lineCap='round';
+if(fuss){for(const d of[-1,1]){ctx.beginPath();ctx.moveTo(d*30,-76);ctx.lineTo(d*10,-68);ctx.stroke();ctx.beginPath();ctx.moveTo(d*28,-62);ctx.lineTo(d*14,-56);ctx.moveTo(d*28,-52);ctx.lineTo(d*14,-56);ctx.stroke()}
+ctx.fillStyle='#8ec9ff';for(const d of[-1,1]){ctx.beginPath();ctx.ellipse(d*30,-44+(t*30%14),3,6,0,0,7);ctx.fill()}}
+else if(sad){for(const d of[-1,1]){ctx.beginPath();ctx.ellipse(d*20,-62,6,7,0,0,7);ctx.fill()}
+for(const d of[-1,1]){ctx.beginPath();ctx.lineWidth=5;ctx.moveTo(d*34,-86);ctx.lineTo(d*10,-68);ctx.stroke()}
+ctx.font='30px sans-serif';ctx.fillText('💢',42,-92)}
+else if(happy||jumpY>0){ctx.lineWidth=4;for(const d of[-1,1]){ctx.beginPath();ctx.arc(d*20,-60,7,Math.PI*1.1,Math.PI*1.9);ctx.stroke()}}
+else{for(const d of[-1,1]){ctx.beginPath();ctx.ellipse(d*20,-62,6,8,0,0,7);ctx.fill();ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(d*20+2,-65,2.2,0,7);ctx.fill();ctx.fillStyle='#3b1b2b'}}
+ctx.fillStyle=dark;ctx.beginPath();ctx.ellipse(0,-34,22,16,0,0,7);ctx.fill();
+ctx.fillStyle='#b8476f';for(const d of[-1,1]){ctx.beginPath();ctx.ellipse(d*8,-34,3.5,5.5,0,0,7);ctx.fill()}
+ctx.strokeStyle='#8a2f52';ctx.lineWidth=3;ctx.beginPath();
+if(fuss){ctx.fillStyle='#7a2040';ctx.beginPath();ctx.ellipse(0,-14,9,7+Math.sin(t*12)*2,0,0,7);ctx.fill()}
+else{if(happy||jumpY>0)ctx.arc(0,-24,10,.15,Math.PI-.15);else if(sad)ctx.arc(0,-8,10,Math.PI+.3,-.3);else ctx.arc(0,-20,8,.3,Math.PI-.3);ctx.stroke()}
+if(burpFlash>.6){ctx.font='34px sans-serif';ctx.globalAlpha=Math.min(1,(burpFlash-.6)*2);ctx.fillText('💨',44,-30);ctx.globalAlpha=1}
+ctx.restore();
+if(fuss){const hx=pigX+62*s+sx,hy=gy-jumpY-86*s,ph=handT/.25,sw=ph>0?Math.sin(ph*Math.PI)*-18:0;
+ctx.save();ctx.translate(hx-sw*.6,hy+sw*.8);ctx.rotate(.5-ph*.35);ctx.font=(52+Math.min(30,s*10))+'px sans-serif';ctx.textAlign='center';ctx.fillText('🖐️',0,0);ctx.restore()}}
+resize();draw();
+</script>
+</body>
+</html>
